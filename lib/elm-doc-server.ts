@@ -212,6 +212,7 @@ function getElmCache(elmVersion: string) {
 async function getManifest(manifestPath: string): Promise<Manifest> {
   return readFileAsync(manifestPath, "utf8")
     .then(async (json) => {
+      warning(`DEBUG: readFileAsync: parsing ${json}`);
       let manifest = JSON.parse(json);
       let stat = await statAsync(manifestPath);
       manifest["timestamp"] = Math.round(stat.mtime.getTime() / 1000);
@@ -224,6 +225,7 @@ async function getManifest(manifestPath: string): Promise<Manifest> {
 function getManifestSync(manifestPath: string): Manifest | null {
   try {
     const json = fs.readFileSync(manifestPath, "utf8");
+    warning(`DEBUG: getManifestSync: parsing ${json}`);
     let manifest = JSON.parse(json);
     let stat = fs.statSync(manifestPath);
     manifest["timestamp"] = Math.round(stat.mtime.getTime() / 1000);
@@ -246,7 +248,9 @@ function completeApplication(
       "elm-application.json"
     );
     if (fs.existsSync(elmAppPath)) {
-      const elmApp = JSON.parse(fs.readFileSync(elmAppPath).toString());
+      const json = fs.readFileSync(elmAppPath).toString();
+      warning(`DEBUG: completeApplication: parsing ${json}`);
+      const elmApp = JSON.parse(json);
       Object.assign(manifest, elmApp);
     }
   } catch (err) {
@@ -365,16 +369,22 @@ function buildPackageDocs(
     }
     console.error(`Errors detected.${howToSeeErrors}`);
     if (verbose) {
-      elmErrors(JSON.parse(build.stderr.toString()));
+      const json = build.stderr.toString();
+      warning(`DEBUG: buildPackageDocs: Error parsing ${json}`);
+      elmErrors(JSON.parse(json));
     }
   }
   let docs;
   try {
-    docs = JSON.parse(fs.readFileSync(tmpFile.name).toString());
+    const json = fs.readFileSync(tmpFile.name).toString()
+    warning(`DEBUG: buildPackageDocs: Docs parsing ${json}`);
+    docs = JSON.parse(json);
   } catch (err) {
     try {
+      const stdErrJson = build.stderr.toString()
+      warning(`DEBUG: buildPackageDocs: Docs stderr parsing ${stdErrJson}`);
       // Return Errors JSON report
-      docs = JSON.parse(build.stderr.toString());
+      docs = JSON.parse(stdErrJson);
       if (docs.type === "compile-errors") {
         docs.errors.forEach((error: any) => {
           error.path = error.path.substring(buildDir.length + 1);
