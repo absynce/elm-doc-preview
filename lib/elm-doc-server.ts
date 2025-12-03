@@ -394,7 +394,7 @@ function buildPackageDocs(
   if (build.error) {
     error(`cannot build documentation (${build.error})`);
   } else if (build.stderr.toString().length > 0) {
-    console.error(`Errors detected.${howToSeeErrors}`);
+    console.error("Errors detected.");
     const json = build.stderr.toString();
     warning(`DEBUG: buildPackageDocs: Error parsing ${json}`);
     elmErrors(JSON.parse(json));
