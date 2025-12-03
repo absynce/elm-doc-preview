@@ -33,6 +33,7 @@ interface Options {
   browser: boolean;
   reload: boolean;
   verbose: boolean;
+  initial: boolean;
 }
 
 interface Manifest {
@@ -85,6 +86,20 @@ function fatal(...args: any[]) {
 function elmErrors(error: any) {
   if (error.type === "compile-errors") {
     console.log(elmErrorWithColor(error.errors));
+  }
+  else {
+    // Map a GeneralProblem to Error
+    // https://package.elm-lang.org/packages/elm/project-metadata-utils/latest/Elm-Error#Error
+    const errors = [
+      {
+        path: error.path,
+        problems: [{
+          title: error.title,
+          message: error.message
+        }]
+      }
+    ]
+    console.log(elmErrorWithColor(errors));
   }
 }
 
@@ -170,6 +185,23 @@ const elmErrorWithColor = (errors: Error[]) => {
     return error.problems.map(problemToString).join("\n\n");
   };
   return errors.map(errorToString).join("\n\n\n");
+};
+
+/*
+ * Wait and trigger event once after some time.
+ *
+ * Sources:
+ *   - https://github.com/samhuk/chokidar-debounced/tree/master
+ *   - https://www.joshwcomeau.com/snippets/javascript/debounce/
+ */
+const debounce = (fn: (...args: any[]) => void, debounceMilliseconds: number) => {
+  let currentTimeout: any = null;
+  return (...args: any[]) => {
+    clearTimeout(currentTimeout);
+    currentTimeout = setTimeout(() => {
+      fn(...args)
+    }, debounceMilliseconds);
+  };
 };
 
 /*
@@ -334,7 +366,7 @@ function buildDocs(
   info(`  |> building ${path.resolve(dir)} documentation`);
   try {
     if (manifest.type == "package") {
-      return buildPackageDocs(dir, elm, clean, verbose);
+      return buildPackageDocs(dir, elm, clean);
     } else if (manifest.type == "application") {
       return buildApplicationDocs(manifest, dir, elm, clean, verbose);
     }
@@ -349,7 +381,6 @@ function buildPackageDocs(
   dir: string,
   elm: Elm,
   clean: boolean,
-  verbose: boolean
 ): Output {
   const tmpFile = tmp.fileSync({ prefix: "elm-docs", postfix: ".json" });
   const buildDir = path.resolve(dir);
@@ -363,16 +394,13 @@ function buildPackageDocs(
   if (build.error) {
     error(`cannot build documentation (${build.error})`);
   } else if (build.stderr.toString().length > 0) {
-    let howToSeeErrors = "";
-    if (!verbose) {
-      howToSeeErrors = " Add the --verbose flag to see details.";
-    }
     console.error(`Errors detected.${howToSeeErrors}`);
-    if (verbose) {
-      const json = build.stderr.toString();
-      warning(`DEBUG: buildPackageDocs: Error parsing ${json}`);
-      elmErrors(JSON.parse(json));
-    }
+    const json = build.stderr.toString();
+    warning(`DEBUG: buildPackageDocs: Error parsing ${json}`);
+    elmErrors(JSON.parse(json));
+  }
+  else {
+    info("✅ Documentation build succeeded!")
   }
   let docs;
   try {
@@ -453,7 +481,7 @@ function buildApplicationDocs(
   if (manifest["source-directories"]) {
     manifest["source-directories"].forEach((src) => {
       const srcDir = path.resolve(src);
-      importModules(srcDir, tmpDirSrc);
+      importModules(srcDir, tmpDirSrc, verbose);
       const elmJsonPath = path.resolve(src, "../elm.json");
 
       if (fs.existsSync(elmJsonPath)) {
@@ -476,7 +504,7 @@ function buildApplicationDocs(
   // Write elm.json and generate package documentation
   const elmJson = JSON.stringify(pkg);
   fs.writeFileSync(tmpDir.name + "/elm.json", elmJson, "utf8");
-  const docs = buildPackageDocs(tmpDir.name, elm, clean, verbose);
+  const docs = buildPackageDocs(tmpDir.name, elm, clean);
 
   // remove temporary directory
   if (clean) {
@@ -502,7 +530,7 @@ function getExposedModules(
   return exposedModules;
 }
 
-function importModules(srcDir: string, dstDir: string) {
+function importModules(srcDir: string, dstDir: string, verbose: boolean) {
   globSync("**/*.elm", { cwd: srcDir }).forEach((elm) => {
     try {
       const dir = path.resolve(dstDir, path.dirname(elm));
@@ -512,17 +540,25 @@ function importModules(srcDir: string, dstDir: string) {
       let module = fs.readFileSync(srcModulePath).toString();
       if (module.match(/^port +module /) !== null) {
         // Stub ports by subscriptions and commands that do nothing
-        info(`  |> stubbing ${elm} ports`);
+        let howToSeeDetails = "";
+        if (!verbose) {
+          howToSeeDetails = " Add the --verbose flag to see details.";
+        }
+        info(`  |> stubbing ${elm} ports.${howToSeeDetails}`);
         module = module.replace(
           /^port +([^ :]+)([^\n]+)$/gm,
           (match, name, decl, _off, _str) => {
             if (name === "module") {
               return ["module", decl].join(" ");
             } else if (decl.includes("Sub")) {
-              info("  |> stubbing incoming port", name);
+              if (verbose) {
+                info("  |> stubbing incoming port", name);
+              }
               return name + " " + decl + "\n" + name + " = always Sub.none\n";
             } else if (decl.includes("Cmd")) {
-              info("  |> stubbing outgoing port", name);
+              if (verbose) {
+                info("  |> stubbing outgoing port", name);
+              }
               return name + " " + decl + "\n" + name + " = always Cmd.none\n";
             } else {
               warning("unmatched", match);
@@ -596,6 +632,7 @@ class DocServer {
       reload = true,
       debug = false,
       verbose = false,
+      initial = false,
     } = options || {};
     this.options = {
       address,
@@ -605,6 +642,7 @@ class DocServer {
       port,
       reload,
       verbose,
+      initial,
     };
 
     try {
@@ -791,8 +829,11 @@ class DocServer {
       atomic: true,
     });
 
+    const self = this;
+    let sendDocsDebounced = debounce(() => self.sendDocs(), 250)
+
     watcher
-      .on("all", (_event, filepath) => this.onChange(filepath))
+      .on("all", (_event, filepath) => this.onChange(filepath, sendDocsDebounced))
       .on("error", (err) => error(err))
       .on("ready", () => {
         if (this.manifest && this.manifest.type === "package") {
@@ -803,19 +844,27 @@ class DocServer {
         if (this.options.debug) {
           info(watcher.getWatched());
         }
+        if (this.manifest && this.options.initial) {
+          buildDocs(
+            this.manifest,
+            ".",
+            this.elm,
+            !this.options.debug,
+          )
+        }
       });
   }
 
-  private onChange(filepath: string) {
+  private onChange(filepath: string, sendDocsDebounced: () => void) {
     info("  |>", "detected", filepath, "modification");
     if (filepath == "README.md") {
       this.sendReadme();
     } else if (filepath.endsWith(".json")) {
       this.manifest = getManifestSync("elm.json");
       this.sendManifest();
-      this.sendDocs();
+      sendDocsDebounced()
     } else {
-      this.sendDocs();
+      sendDocsDebounced()
     }
   }
 
