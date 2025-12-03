@@ -67,5 +67,5 @@
   },
   "type": "module",
   "types": "./lib/elm-doc-server.d.ts",
-  "version": "6.0.2-debugging.2"
+  "version": "6.1.0-debugging.1"
 }
