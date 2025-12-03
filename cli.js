@@ -32,7 +32,8 @@ function init() {
     )
     .option("-p, --port <port>", "the server listen port", Math.floor, 8000)
     .option("-r, --no-reload", "disable hot reloading")
-    .option("-v, --verbose", "verbose console output");
+    .option("-v, --verbose", "verbose console output")
+    .option("--initial", "build docs when server starts");
 
   program.on("--help", () => {
     console.log("");

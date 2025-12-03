@@ -33,6 +33,7 @@ interface Options {
   browser: boolean;
   reload: boolean;
   verbose: boolean;
+  initial: boolean;
 }
 
 interface Manifest {
@@ -590,6 +591,7 @@ class DocServer {
       reload = true,
       debug = false,
       verbose = false,
+      initial = false,
     } = options || {};
     this.options = {
       address,
@@ -599,6 +601,7 @@ class DocServer {
       port,
       reload,
       verbose,
+      initial,
     };
 
     try {
@@ -796,6 +799,14 @@ class DocServer {
         }
         if (this.options.debug) {
           info(watcher.getWatched());
+        }
+        if (this.manifest && this.options.initial) {
+          buildDocs(
+            this.manifest,
+            ".",
+            this.elm,
+            !this.options.debug,
+          )
         }
       });
   }
