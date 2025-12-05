@@ -847,6 +847,7 @@ class DocServer {
             ".",
             this.elm,
             !this.options.debug,
+            this.options.verbose
           )
         }
       });
